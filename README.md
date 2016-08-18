@@ -5,3 +5,5 @@ The idea is to set up a Satellite 6.2 server with little manual tasks.
 The idea is not not rely on additional deployment infrastructure - as this would need to be set up somehow as well.
 
 This repository may be freely used but i do not bother on a general prupose usage.
+
+Adding bla bla....
