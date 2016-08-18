@@ -1,0 +1,98 @@
+
+- hosts: coe
+  environment:
+    LC_MESSAGES: en_US.utf8
+    LC_ALL: en_US.utf8
+  include_vars: "secret.yml"
+  vars:
+      #resolv.conf
+      domainname: .coe.muc.redhat.com
+      searchdomain: [coe.muc.redhat.com]
+      nameservers: [10.32.96.1, 10.32.96.31]
+
+  tasks:
+  - name: resolv.conf | Configuration file, /etc/resolv.conf
+    action: template src=/etc/ansible/templates/resolv.conf.j2 dest=/etc/resolv.conf
+
+  - name: get subscription-manager register status
+    shell: subscription-manager identity
+    register: result
+    ignore_errors: True
+
+  - name: register to CDN
+    ## redhat_subscription module does not accept --type (yet)
+    ## run into problems with attach => left "type" out
+    ## shell: subscription-manager  register --type=satellite --username={{ cdnuser }}  --password={{ cdnpass }}
+    shell: subscription-manager  register --username={{ cdnuser }} --password={{ cdnpass }} 
+    when: result|failed
+
+  - name: find subscription pool id
+    shell: subscription-manager list --available | awk '/Red Hat Satellite/,/Pool ID/'  | grep "Pool ID:" | head -1 | awk ' { print $NF } ' ; test ${PIPESTATUS[0]} -eq 0
+    register: poolid
+
+  - name: get subscription-manager attach status
+    shell: subscription-manager list | grep -i 'Status:' ; test ${PIPESTATUS[0]} -eq 0
+    register: attachresult
+    ignore_errors: True
+
+  - name: attach subscription
+    shell: subscription-manager  attach --pool={{ poolid.stdout }}
+    when: attachresult.stdout.find('Not Subscribed') != -1
+    
+  - name: disable repos 
+    shell: subscription-manager repos --disable=* --enable=rhel-7-server-rpms --enable=rhel-server-rhscl-7-rpms --enable=rhel-7-server-satellite-6.2-rpms
+
+  - name: yum clean
+    shell: yum clean all
+    
+  - name: install rpms 
+    yum: name={{ item }} state=present
+    with_items:
+      - chrony
+      - sos
+      - satellite
+
+#  - name: set timezone
+#    timezone: name=Europe/Berlin 
+#    notify:
+#      - Restart cron
+
+  - name: enable chrony
+    service:  name=chronyd state=started enabled=yes
+
+  - name: update system
+    yum: name=* state=latest
+    notify:
+     - Restart server
+     - Wait for server to restart 
+  
+  - name: add services to firewall
+    firewalld: service={{ item }} permanent=true state=enabled immediate=true
+    with_items:
+      - RH-Satellite-6 
+      - dhcp
+      - dns
+      - tftp
+
+  - name: add port to firewall
+    firewalld: port={{ item }} permanent=true state=enabled immediate=true
+    with_items:
+      - 8000/tcp
+
+  handlers:
+    - name: Restart server
+      command: sleep 2 && shutdown -r now "Reboot triggered by Ansible"
+      async: 1
+      poll: 0
+      ignore_errors: true
+    - name: Wait for server to restart
+      local_action:
+        module: wait_for
+          host={{ inventory_hostname }}
+          port=22
+          delay=1
+          timeout=300
+    - name: Restart cron
+      service: name=cron state=restarted
+
+
