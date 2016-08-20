@@ -3,7 +3,8 @@
   environment:
     LC_MESSAGES: en_US.utf8
     LC_ALL: en_US.utf8
-  include_vars: "secret.yml"
+  vars_files:
+    - "secret.yml"
   vars:
       #resolv.conf
       domainname: .coe.muc.redhat.com
